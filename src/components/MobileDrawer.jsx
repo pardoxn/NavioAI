@@ -1,6 +1,6 @@
 // src/components/MobileDrawer.jsx
 import React from "react";
-import { X, LogOut, User as UserIcon } from "lucide-react";
+import { X, LogOut, User as UserIcon, Navigation, Archive } from "lucide-react";
 
 function buildDisplayName(user) {
   const raw =
@@ -36,6 +36,8 @@ export default function MobileDrawer({
   onLogout,
   user,
   role,
+  onNavigate,
+  activeTab,
 }) {
   const displayName = buildDisplayName(user);
   const initials = buildInitials(displayName);
@@ -84,6 +86,27 @@ export default function MobileDrawer({
           </div>
         </div>
 
+        <div className="px-6 pt-2">
+          <nav className="space-y-2">
+            <DrawerNavButton
+              icon={Navigation}
+              label="Aktive Touren"
+              active={activeTab === "tours"}
+              onClick={() => {
+                onNavigate?.("tours");
+              }}
+            />
+            <DrawerNavButton
+              icon={Archive}
+              label="Archiv"
+              active={activeTab === "archive"}
+              onClick={() => {
+                onNavigate?.("archive");
+              }}
+            />
+          </nav>
+        </div>
+
         <div className="mt-auto px-6 pb-8">
           <button
             type="button"
@@ -98,5 +121,26 @@ export default function MobileDrawer({
         </div>
       </aside>
     </div>
+  );
+}
+
+function DrawerNavButton({ icon: Icon, label, active, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        "flex w-full items-center justify-between rounded-xl border px-4 py-3 text-sm font-medium transition-colors " +
+        (active
+          ? "border-slate-300 bg-slate-100 text-slate-900"
+          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100")
+      }
+    >
+      <span className="flex items-center gap-3">
+        <Icon className="h-4 w-4" />
+        {label}
+      </span>
+      {active && <span className="text-xs font-semibold uppercase text-slate-500">jetzt</span>}
+    </button>
   );
 }

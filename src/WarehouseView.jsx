@@ -36,8 +36,15 @@ export default function WarehouseView({
   tours, setTours,
   archivedTours, setArchivedTours,
   embedded = false,
+  activeTab: controlledActiveTab,
+  onActiveTabChange,
 }) {
-  const [activeTab, setActiveTab] = React.useState("tours"); // 'tours' | 'archive'
+  const [internalTab, setInternalTab] = React.useState("tours"); // 'tours' | 'archive'
+  const activeTab = controlledActiveTab ?? internalTab;
+  const setActiveTab = React.useCallback((next) => {
+    if (typeof onActiveTabChange === "function") onActiveTabChange(next);
+    if (controlledActiveTab === undefined) setInternalTab(next);
+  }, [controlledActiveTab, onActiveTabChange]);
   const [expandedTour, setExpandedTour] = React.useState(null);
   const [expandedOrder, setExpandedOrder] = React.useState(null);
   const [showLoadingModal, setShowLoadingModal] = React.useState(null); // tourId
@@ -120,6 +127,7 @@ export default function WarehouseView({
 
     setArchivedTours(prev => [archived, ...(prev || [])]);
     setTours(prev => (prev || []).filter(x => x.id !== tourId));
+    setActiveTab("archive");
     setShowLoadingModal(null);
     setTourLoadImage(null);
     setTourNote("");
@@ -132,6 +140,7 @@ export default function WarehouseView({
     const { loadedAt, loadedAtISO, loadImage, warehouseNote, archivedAt, kind, ...active } = t;
     setTours(prev => [{ ...active, updatedAt: new Date().toISOString() }, ...(prev || [])]);
     setArchivedTours(prev => (prev || []).filter(x => x.id !== tourId));
+    setActiveTab("tours");
     toast.info("Tour zurück in aktive Touren verschoben");
   };
 
@@ -139,40 +148,18 @@ export default function WarehouseView({
     setExpandedTour(expandedTour === tourId ? null : tourId);
     setExpandedOrder(null);
   };
-  const toggleOrder = (orderId) => {
-    setExpandedOrder(expandedOrder === orderId ? null : orderId);
+  const toggleOrderDetails = (orderKey) => {
+    setExpandedOrder(expandedOrder === orderKey ? null : orderKey);
   };
 
   const containerClasses = embedded
-    ? "bg-slate-50 pb-16 snap-start"
+    ? "pb-16"
     : "min-h-screen bg-gray-50 pb-24";
 
   return (
     <div className={containerClasses}>
       {/* Header */}
-      {embedded ? (
-        <div className="sticky top-16 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
-          <div className="mx-auto max-w-xl px-4 py-3">
-            <div
-              className="flex gap-2 overflow-x-auto pb-1 snap-x snap-mandatory"
-              style={{ scrollbarWidth: "thin" }}
-            >
-              <button
-                onClick={() => setActiveTab("tours")}
-                className={`flex h-11 min-w-[160px] snap-start items-center justify-center rounded-xl px-4 text-sm font-semibold transition-colors ${activeTab === "tours" ? "bg-slate-900 text-white shadow-sm" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}
-              >
-                Touren ({readyTours.length})
-              </button>
-              <button
-                onClick={() => setActiveTab("archive")}
-                className={`flex h-11 min-w-[160px] snap-start items-center justify-center rounded-xl px-4 text-sm font-semibold transition-colors ${activeTab === "archive" ? "bg-slate-900 text-white shadow-sm" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}
-              >
-                Archiv ({(archivedTours || []).length})
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : (
+      {!embedded && (
         <header className="bg-gradient-to-r from-slate-800 to-slate-700 text-white sticky top-0 z-10 shadow">
           <div className="px-4 py-4">
             <div className="flex items-center gap-3 mb-3">
@@ -217,8 +204,11 @@ export default function WarehouseView({
               <Package className="w-16 h-16 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-500">Keine offenen Touren</p>
             </div>
-          ) : readyTours.map(tour => {
+          ) : readyTours.map((tour, tourIdx) => {
             const stops = (tour.orders || []).length;
+            const totalWeight = Number(tour.weight || 0);
+            const maxWeight = Number(tour.maxWeight || tour.capacity || 0);
+            const progress = maxWeight > 0 ? Math.min(100, Math.round((totalWeight / maxWeight) * 100)) : 0;
             return (
               <div key={tour.id} className={`bg-white rounded-2xl shadow-sm overflow-hidden ${embedded ? "snap-start" : ""}`}>
                 {/* Header */}
@@ -248,9 +238,24 @@ export default function WarehouseView({
                     </div>
                     <div className="bg-blue-800/30 rounded-lg p-2 text-center">
                       <div className="text-blue-200 text-xs mb-1">Gewicht</div>
-                      <div className="text-white font-bold text-lg">{tour.weight || 0} kg</div>
+                      <div className="text-white font-bold text-lg">{totalWeight} kg</div>
                     </div>
                   </div>
+
+                  {maxWeight > 0 && (
+                    <div className="mb-2">
+                      <div className="h-2 w-full rounded-full bg-blue-900/30">
+                        <div
+                          className="h-2 rounded-full bg-gradient-to-r from-green-400 to-green-500 transition-all"
+                          style={{ width: `${Math.max(progress, 0)}%` }}
+                        />
+                      </div>
+                      <div className="mt-1 flex items-center justify-between text-[11px] text-blue-100">
+                        <span>{totalWeight} kg von {maxWeight} kg</span>
+                        <span>{progress}%</span>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Zeitstempel */}
                   <div className="flex items-center gap-2 text-blue-100 text-xs">
@@ -263,50 +268,71 @@ export default function WarehouseView({
                 {expandedTour === tour.id && (
                   <div className="p-4 space-y-3">
                     {(tour.orders || []).map((order, idx) => {
+                      const orderKey = `${tour.id ?? tourIdx}-${order.id ?? `o-${idx}`}`;
                       const imgs = Array.isArray(order.images) ? order.images : [];
+                      const isExpanded = expandedOrder === orderKey;
                       return (
-                        <div key={order.id ?? `o-${idx}`} className="bg-gray-50 rounded-xl overflow-hidden">
-                          <div className="p-4">
-                            <div className="flex items-center gap-3 mb-2">
-                              <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">{idx + 1}</div>
+                        <div key={orderKey} className="bg-gray-50 rounded-xl overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => toggleOrderDetails(orderKey)}
+                            className="w-full p-4 text-left"
+                          >
+                            <div className="flex items-center gap-3 mb-1">
+                              <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">
+                                {idx + 1}
+                              </div>
                               <div className="flex-1 min-w-0">
-                                <div className="font-semibold text-gray-900 truncate">{order.customerName || order.customer || "Kunde"}</div>
+                                <div className="font-semibold text-gray-900 truncate">
+                                  {order.customerName || order.customer || "Kunde"}
+                                </div>
                                 <div className="text-sm text-gray-500">{order.zip} {order.city}</div>
                               </div>
                               <div className="text-right flex-shrink-0">
                                 <div className="font-bold text-gray-900">{order.weight || 0} kg</div>
-                                {imgs.length > 0 && (
-                                  <div className="text-xs text-green-600 flex items-center gap-1 justify-end">
-                                    <Camera size={12} />
-                                    <span>{imgs.length}</span>
-                                  </div>
-                                )}
+                                <ChevronDown className={`ml-auto h-5 w-5 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
                               </div>
                             </div>
-
-                            {/* Upload */}
-                            <label className="block mt-2 w-full p-3 bg-blue-50 border-2 border-dashed border-blue-300 rounded-xl text-center cursor-pointer active:bg-blue-100">
-                              <input
-                                type="file" accept="image/*" capture="environment" multiple
-                                className="hidden"
-                                onChange={(e) => handleImageUpload(tour.id, order.id, e)}
-                              />
-                              <Camera className="w-5 h-5 text-blue-600 mx-auto mb-1" />
-                              <span className="text-sm font-medium text-blue-700">Foto hinzufügen</span>
-                            </label>
-
-                            {/* Bilder */}
                             {imgs.length > 0 && (
-                              <div className="grid grid-cols-2 gap-2 mt-3">
-                                {imgs.map(img => (
-                                  <div key={img.id} className="relative">
-                                    <img src={img.dataUrl} alt="Sendung" className="w-full h-32 object-cover rounded-lg" />
-                                    <div className="absolute bottom-1 left-1 right-1 bg-black/60 text-white text-[10px] px-2 py-1 rounded">{img.timestamp}</div>
-                                  </div>
-                                ))}
+                              <div className="flex items-center justify-end gap-2 text-xs text-green-600">
+                                <Camera size={12} />
+                                <span>{imgs.length}</span>
                               </div>
                             )}
-                          </div>
+                          </button>
+
+                          {isExpanded && (
+                            <div className="px-4 pb-4 space-y-3">
+                              <label className="block w-full p-3 bg-blue-50 border-2 border-dashed border-blue-300 rounded-xl text-center cursor-pointer active:bg-blue-100">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  capture="environment"
+                                  multiple
+                                  className="hidden"
+                                  onChange={(e) => handleImageUpload(tour.id, order.id, e)}
+                                />
+                                <Camera className="w-5 h-5 text-blue-600 mx-auto mb-1" />
+                                <span className="text-sm font-medium text-blue-700">Foto hinzufügen</span>
+                              </label>
+
+                              {imgs.length > 0 && (
+                                <div className="grid grid-cols-2 gap-2">
+                                  {imgs.map((img) => {
+                                    const preview = img.dataUrl || img.url;
+                                    return (
+                                      <div key={img.id} className="relative">
+                                        <img src={preview} alt="Sendung" className="h-32 w-full rounded-lg object-cover" />
+                                        <div className="absolute bottom-1 left-1 right-1 rounded bg-black/60 px-2 py-1 text-[10px] text-white">
+                                          {img.timestamp}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}

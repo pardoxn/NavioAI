@@ -1,14 +1,15 @@
-// src/main.jsx
-import React from "react";
-import { createRoot } from "react-dom/client";
-import Root from "./Root.jsx";   // Gate (Auth + App mit Sidebar)
-import Reset from "./Reset.jsx";
-import "./index.css";
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import './index.css'
+import { AuthProvider } from './AuthContext.jsx'
+import LogoutOverlay from './LogoutOverlay.jsx'
+import RoleRouter from './RoleRouter.jsx'
 
-const path = window.location.pathname;
-
-createRoot(document.getElementById("root")).render(
+ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    {path.startsWith("/reset") ? <Reset /> : <Root />}
-  </React.StrictMode>
-);
+    <AuthProvider>
+      <RoleRouter />
+      <LogoutOverlay />
+    </AuthProvider>
+  </React.StrictMode>,
+)

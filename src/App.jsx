@@ -16,6 +16,7 @@ import {
 
 import { useAuth } from "./AuthContext.jsx";
 import AdminPanel from "./admin/AdminPanel.jsx";
+import Login from "./Login.jsx";
 
 import { cmrForStop, cmrForTour, cmrSaveStop, cmrSaveTour } from "./cmr.js";
 import CmrLayoutEditor from "./CmrLayoutEditor.jsx";
@@ -195,7 +196,7 @@ function normalizePlannedTours(input) {
  * Haupt-App
  ****************/
 export default function App() {
-  const { user, logout } = useAuth();
+  const { user, logout, loading } = useAuth();
 
   // Rollen-Handling
   const resolvedUser = React.useMemo(() => {
@@ -223,7 +224,6 @@ export default function App() {
   }, [resolvedUser]);
   const role = normalizedRoles[0] || "dispo";
   const isAdmin = normalizedRoles.includes("admin");
-  const isDispo = normalizedRoles.includes("dispo");
   const isLager = normalizedRoles.includes("lager");
   const isWarehouseStandalone = React.useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -232,6 +232,38 @@ export default function App() {
   }, []);
   const isLagerMode = isLager || isWarehouseStandalone;
 
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-900 text-slate-100">
+        Lade…
+      </div>
+    );
+  }
+
+  if (!resolvedUser) {
+    return <Login />;
+  }
+
+  return (
+    <AppContent
+      resolvedUser={resolvedUser}
+      role={role}
+      isAdmin={isAdmin}
+      isLager={isLager}
+      isLagerMode={isLagerMode}
+      logout={logout}
+    />
+  );
+}
+
+function AppContent({
+  resolvedUser,
+  role,
+  isAdmin,
+  isLager,
+  isLagerMode,
+  logout,
+}) {
   // UI/Navigation
   const [activeView, setActiveView] = React.useState("expedition");
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
@@ -241,6 +273,7 @@ export default function App() {
   const [useAi, setUseAi] = React.useState(true);
   const [isPlanning, setIsPlanning] = React.useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = React.useState(false);
+  const [lagerActiveTab, setLagerActiveTab] = React.useState("tours");
   const fileRef = React.useRef(null);
 
   // Admin-Panel ohne URL-Wechsel
@@ -290,6 +323,45 @@ export default function App() {
     const hasStatus = tours.some(t => t && t.status);
     return hasStatus ? tours.filter(t => t.status === "active") : tours;
   }, [tours]);
+  const readyToursForLager = React.useMemo(() => {
+    if (!Array.isArray(tours)) return [];
+    const hasStatus = tours.some(t => t && t.status);
+    return hasStatus ? tours.filter(t => (t?.status ?? "active") === "active") : tours;
+  }, [tours]);
+  const latestPlanLabel = React.useMemo(() => {
+    const parseTs = (value) => {
+      if (!value) return null;
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date.getTime();
+    };
+    const timestamps = [];
+    readyToursForLager.forEach((tour) => {
+      [tour.updatedAt, tour.createdAt, tour.date, tour.archivedAt].forEach((candidate) => {
+        const ts = parseTs(candidate);
+        if (ts) timestamps.push(ts);
+      });
+    });
+    archivedTours.forEach((tour) => {
+      [tour.updatedAt, tour.createdAt, tour.date, tour.archivedAt].forEach((candidate) => {
+        const ts = parseTs(candidate);
+        if (ts) timestamps.push(ts);
+      });
+    });
+    if (!timestamps.length) return null;
+    return new Date(Math.max(...timestamps)).toLocaleString("de-DE");
+  }, [readyToursForLager, archivedTours]);
+  const prevReadyCountRef = React.useRef(readyToursForLager.length);
+  React.useEffect(() => {
+    if (!isLagerMode) {
+      prevReadyCountRef.current = readyToursForLager.length;
+      return;
+    }
+    if (readyToursForLager.length > prevReadyCountRef.current) {
+      toast.info("Neue Touren wurden geplant.");
+    }
+    prevReadyCountRef.current = readyToursForLager.length;
+  }, [readyToursForLager.length, isLagerMode]);
 
   // Optimizer-URL
   const OPT_URL = (import.meta.env?.VITE_OPTIMIZER_URL || "http://localhost:8001").replace(/\/+$/, "");
@@ -426,6 +498,7 @@ export default function App() {
     } finally {
       localStorage.removeItem("auth");
       localStorage.removeItem("token");
+      localStorage.removeItem("auth:token");
       localStorage.removeItem("user");
       localStorage.removeItem("auth:user");
       sessionStorage.clear();
@@ -631,22 +704,37 @@ export default function App() {
     const openDrawer = () => setMobileDrawerOpen(true);
     const closeDrawer = () => setMobileDrawerOpen(false);
     const drawerRole = isLager ? role : "lager";
+    const handleNavigate = (next) => {
+      setLagerActiveTab(next);
+      closeDrawer();
+    };
 
     return (
-      <div className="flex min-h-screen flex-col bg-slate-100">
+      <div className="min-h-screen bg-gray-50">
         <MobileDrawer
           open={mobileDrawerOpen}
           onClose={closeDrawer}
           onLogout={handleLogout}
           user={resolvedUser}
           role={drawerRole}
+          onNavigate={handleNavigate}
+          activeTab={lagerActiveTab}
         />
-        <MobileHeader onMenuToggle={openDrawer} />
+        <MobileHeader
+          onMenuToggle={openDrawer}
+          activeTab={lagerActiveTab}
+          onTabChange={setLagerActiveTab}
+          toursCount={readyToursForLager.length}
+          archivedCount={archivedTours.length}
+          latestPlanLabel={latestPlanLabel}
+        />
 
-        <main className="flex-1 overflow-y-auto snap-y snap-mandatory">
-          <div className="mx-auto flex w-full max-w-xl flex-col gap-4 px-4 pb-16 pt-4">
+        <main className="px-4 pb-24 pt-4">
+          <div className="mx-auto w-full max-w-md space-y-4">
             <WarehouseView
               embedded
+              activeTab={lagerActiveTab}
+              onActiveTabChange={setLagerActiveTab}
               tours={tours}
               setTours={setTours}
               archivedTours={archivedTours}
