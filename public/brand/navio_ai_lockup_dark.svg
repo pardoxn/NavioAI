@@ -1,0 +1,20 @@
+<svg width="960" height="300" viewBox="0 0 960 300" xmlns="http://www.w3.org/2000/svg">
+  <rect width="960" height="300" fill="#0F172A"/>
+  <g transform="translate(24,24)">
+    <defs>
+      <linearGradient id="gl" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#60A5FA"/>
+        <stop offset="100%" stop-color="#06B6D4"/>
+      </linearGradient>
+    </defs>
+    <g transform="scale(0.45)">
+      <rect x="0" y="0" width="512" height="512" rx="96" fill="#101827"/>
+      <path d="M128 384 L128 128 L384 384 L384 128" fill="none" stroke="url(#gl)" stroke-width="72" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g transform="translate(260, 84)">
+      <text x="0" y="64" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="88" font-weight="700" fill="#FFFFFF">Navio</text>
+      <rect x="330" y="32" rx="12" ry="12" width="78" height="38" fill="url(#gl)"/>
+      <text x="348" y="60" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="24" font-weight="800" fill="#0B1020">AI</text>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,16 @@
+[
+  {
+    "id": "u1",
+    "username": "buero",
+    "displayName": "Büro",
+    "role": "office",
+    "passwordHash": "$2b$10$6/V1D2R6ToxHVKlT6mfMOuUNPMHSYebJBgPBuqmfuHqK6/2yPAGa6"
+  },
+  {
+    "id": "u2",
+    "username": "lager",
+    "displayName": "Lager",
+    "role": "warehouse",
+    "passwordHash": "$2b$10$6/V1D2R6ToxHVKlT6mfMOuUNPMHSYebJBgPBuqmfuHqK6/2yPAGa6"
+  }
+]
