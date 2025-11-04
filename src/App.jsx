@@ -1,6 +1,8 @@
 // src/App.jsx
 import WarehouseView from "./WarehouseView.jsx";
 import SaveControls from "./SaveControls.jsx";
+import MobileHeader from "./components/MobileHeader.jsx";
+import MobileDrawer from "./components/MobileDrawer.jsx";
 import { useAutosave } from "./autosave.js";
 import { optimizeRemote } from "./optimizerClient.js";
 import React from "react";
@@ -196,24 +198,39 @@ export default function App() {
   const { user, logout } = useAuth();
 
   // Rollen-Handling
+  const resolvedUser = React.useMemo(() => {
+    if (user && typeof user === "object") return user;
+    if (typeof window === "undefined") return null;
+    try {
+      const raw =
+        window.localStorage?.getItem("auth:user") ||
+        window.localStorage?.getItem("user");
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }, [user]);
   const normalizedRoles = React.useMemo(() => {
     const list = [];
-    if (Array.isArray(user?.roles)) list.push(...user.roles);
-    if (user?.role) list.push(user.role);
+    if (Array.isArray(resolvedUser?.roles)) list.push(...resolvedUser.roles);
+    if (resolvedUser?.role) list.push(resolvedUser.role);
     const seen = new Set();
     const normalized = list
       .map((r) => String(r || "").toLowerCase())
       .filter((r) => r && !seen.has(r) && (seen.add(r), true));
     return normalized.length ? normalized : ["dispo"];
-  }, [user]);
+  }, [resolvedUser]);
   const role = normalizedRoles[0] || "dispo";
   const isAdmin = normalizedRoles.includes("admin");
   const isDispo = normalizedRoles.includes("dispo");
   const isLager = normalizedRoles.includes("lager");
   const isWarehouseStandalone = React.useMemo(() => {
+    if (typeof window === "undefined") return false;
     const s = new URLSearchParams(window.location.search);
     return s.get("warehouse") === "1" || window.location.pathname === "/lager";
   }, []);
+  const isLagerMode = isLager || isWarehouseStandalone;
 
   // UI/Navigation
   const [activeView, setActiveView] = React.useState("expedition");
@@ -223,6 +240,7 @@ export default function App() {
   const [query, setQuery] = React.useState("");
   const [useAi, setUseAi] = React.useState(true);
   const [isPlanning, setIsPlanning] = React.useState(false);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = React.useState(false);
   const fileRef = React.useRef(null);
 
   // Admin-Panel ohne URL-Wechsel
@@ -402,10 +420,15 @@ export default function App() {
 
   // Logout
   const handleLogout = async () => {
+    setMobileDrawerOpen(false);
     try {
       await logout?.();
     } finally {
-      localStorage.removeItem("auth"); localStorage.removeItem("token"); localStorage.removeItem("user"); sessionStorage.clear();
+      localStorage.removeItem("auth");
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      localStorage.removeItem("auth:user");
+      sessionStorage.clear();
       toast.info("Abgemeldet"); setTimeout(()=>{ window.location.href = "/"; }, 350);
     }
   };
@@ -604,34 +627,32 @@ export default function App() {
   const copyTour = (tour) => { const clone = JSON.parse(JSON.stringify(tour)); clone.id = Date.now(); clone.locked = false; setTours(prev => [clone, ...prev]); safeToast("Tour kopiert", "success"); };
 
   // ====== LAGER-KIOSK: Rolle 'lager' ODER /lager/?warehouse=1 ======
-  if (isLager || isWarehouseStandalone) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
-              <Navigation className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <div className="font-bold text-gray-900 leading-none">Navio AI</div>
-              <div className="text-xs text-gray-500">Lager-Ansicht</div>
-            </div>
-          </div>
-          <SaveControls
-            onSave={handleManualSave}
-            onLoad={handleLoadLatest}
-            lastAutoSaveAt={lastAutoSaveAt}
-            lastManualSaveAt={lastManualSaveAt}
-          />
-        </header>
+  if (isLagerMode) {
+    const openDrawer = () => setMobileDrawerOpen(true);
+    const closeDrawer = () => setMobileDrawerOpen(false);
+    const drawerRole = isLager ? role : "lager";
 
-        <main className="flex-1 p-4">
-          <WarehouseView
-            tours={tours}
-            setTours={setTours}
-            archivedTours={archivedTours}
-            setArchivedTours={setArchivedTours}
-          />
+    return (
+      <div className="flex min-h-screen flex-col bg-slate-100">
+        <MobileDrawer
+          open={mobileDrawerOpen}
+          onClose={closeDrawer}
+          onLogout={handleLogout}
+          user={resolvedUser}
+          role={drawerRole}
+        />
+        <MobileHeader onMenuToggle={openDrawer} />
+
+        <main className="flex-1 overflow-y-auto snap-y snap-mandatory">
+          <div className="mx-auto flex w-full max-w-xl flex-col gap-4 px-4 pb-16 pt-4">
+            <WarehouseView
+              embedded
+              tours={tours}
+              setTours={setTours}
+              archivedTours={archivedTours}
+              setArchivedTours={setArchivedTours}
+            />
+          </div>
         </main>
       </div>
     );
@@ -747,7 +768,7 @@ export default function App() {
                 : "Einstellungen / CMR Layout"}
             </h1>
 
-            {!showAdmin && (
+            {!showAdmin && !isLager && (
               <div className="flex items-center gap-6">
                 <div className="flex items-center gap-4">
                   <div className="text-sm"><span className="text-gray-600">Touren:</span><span className="ml-2 font-bold text-blue-600">{activeToursCount}</span></div>

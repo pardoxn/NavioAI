@@ -35,6 +35,7 @@ const toast = { success: (m)=>safeToast(m,"success"), error:(m)=>safeToast(m,"er
 export default function WarehouseView({
   tours, setTours,
   archivedTours, setArchivedTours,
+  embedded = false,
 }) {
   const [activeTab, setActiveTab] = React.useState("tours"); // 'tours' | 'archive'
   const [expandedTour, setExpandedTour] = React.useState(null);
@@ -142,56 +143,84 @@ export default function WarehouseView({
     setExpandedOrder(expandedOrder === orderId ? null : orderId);
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50 pb-24">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-slate-800 to-slate-700 text-white sticky top-0 z-10 shadow">
-        <div className="px-4 py-4">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="relative">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center">
-                <Navigation className="w-6 h-6 text-white" strokeWidth={2.5} />
-              </div>
-              <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
-                <span className="text-white text-[8px] font-bold">AI</span>
-              </div>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold">Navio AI</h1>
-              <p className="text-sm text-gray-300">Lager-Ansicht</p>
-            </div>
-          </div>
+  const containerClasses = embedded
+    ? "bg-slate-50 pb-16 snap-start"
+    : "min-h-screen bg-gray-50 pb-24";
 
-          {/* Tabs */}
-          <div className="grid grid-cols-2 gap-2 bg-slate-900/30 rounded-lg p-1">
-            <button
-              onClick={() => setActiveTab("tours")}
-              className={`py-2 rounded-lg font-medium transition-colors ${activeTab === "tours" ? "bg-blue-600 text-white" : "text-gray-300 hover:text-white"}`}
+  return (
+    <div className={containerClasses}>
+      {/* Header */}
+      {embedded ? (
+        <div className="sticky top-16 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
+          <div className="mx-auto max-w-xl px-4 py-3">
+            <div
+              className="flex gap-2 overflow-x-auto pb-1 snap-x snap-mandatory"
+              style={{ scrollbarWidth: "thin" }}
             >
-              Touren ({readyTours.length})
-            </button>
-            <button
-              onClick={() => setActiveTab("archive")}
-              className={`py-2 rounded-lg font-medium transition-colors ${activeTab === "archive" ? "bg-blue-600 text-white" : "text-gray-300 hover:text-white"}`}
-            >
-              Archiv ({(archivedTours || []).length})
-            </button>
+              <button
+                onClick={() => setActiveTab("tours")}
+                className={`flex h-11 min-w-[160px] snap-start items-center justify-center rounded-xl px-4 text-sm font-semibold transition-colors ${activeTab === "tours" ? "bg-slate-900 text-white shadow-sm" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}
+              >
+                Touren ({readyTours.length})
+              </button>
+              <button
+                onClick={() => setActiveTab("archive")}
+                className={`flex h-11 min-w-[160px] snap-start items-center justify-center rounded-xl px-4 text-sm font-semibold transition-colors ${activeTab === "archive" ? "bg-slate-900 text-white shadow-sm" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}
+              >
+                Archiv ({(archivedTours || []).length})
+              </button>
+            </div>
           </div>
         </div>
-      </header>
+      ) : (
+        <header className="bg-gradient-to-r from-slate-800 to-slate-700 text-white sticky top-0 z-10 shadow">
+          <div className="px-4 py-4">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="relative">
+                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center">
+                  <Navigation className="w-6 h-6 text-white" strokeWidth={2.5} />
+                </div>
+                <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-[8px] font-bold">AI</span>
+                </div>
+              </div>
+              <div>
+                <h1 className="text-xl font-bold">Navio AI</h1>
+                <p className="text-sm text-gray-300">Lager-Ansicht</p>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="grid grid-cols-2 gap-2 bg-slate-900/30 rounded-lg p-1">
+              <button
+                onClick={() => setActiveTab("tours")}
+                className={`py-2 rounded-lg font-medium transition-colors ${activeTab === "tours" ? "bg-blue-600 text-white" : "text-gray-300 hover:text-white"}`}
+              >
+                Touren ({readyTours.length})
+              </button>
+              <button
+                onClick={() => setActiveTab("archive")}
+                className={`py-2 rounded-lg font-medium transition-colors ${activeTab === "archive" ? "bg-blue-600 text-white" : "text-gray-300 hover:text-white"}`}
+              >
+                Archiv ({(archivedTours || []).length})
+              </button>
+            </div>
+          </div>
+        </header>
+      )}
 
       {/* Tour-Liste */}
       {activeTab === "tours" && (
-        <div className="px-4 py-4 space-y-4">
+        <div className={`${embedded ? "px-0" : "px-4"} py-4 space-y-4`}>
           {readyTours.length === 0 ? (
-            <div className="bg-white rounded-2xl p-8 text-center">
+            <div className={`bg-white rounded-2xl p-8 text-center ${embedded ? "snap-start shadow-sm" : ""}`}>
               <Package className="w-16 h-16 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-500">Keine offenen Touren</p>
             </div>
           ) : readyTours.map(tour => {
             const stops = (tour.orders || []).length;
             return (
-              <div key={tour.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
+              <div key={tour.id} className={`bg-white rounded-2xl shadow-sm overflow-hidden ${embedded ? "snap-start" : ""}`}>
                 {/* Header */}
                 <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-4 cursor-pointer active:opacity-90" onClick={() => toggleTour(tour.id)}>
                   <div className="flex items-start justify-between mb-3">
@@ -300,14 +329,14 @@ export default function WarehouseView({
 
       {/* Archiv */}
       {activeTab === "archive" && (
-        <div className="px-4 py-4 space-y-4">
+        <div className={`${embedded ? "px-0" : "px-4"} py-4 space-y-4`}>
           {(archivedTours || []).length === 0 ? (
-            <div className="bg-white rounded-2xl p-8 text-center">
+            <div className={`bg-white rounded-2xl p-8 text-center ${embedded ? "snap-start shadow-sm" : ""}`}>
               <Package className="w-16 h-16 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-500">Keine archivierten Touren</p>
             </div>
           ) : (archivedTours || []).map(t => (
-            <div key={t.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
+            <div key={t.id} className={`bg-white rounded-2xl shadow-sm overflow-hidden ${embedded ? "snap-start" : ""}`}>
               <div className="bg-gradient-to-r from-gray-600 to-gray-700 p-4 text-white">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
