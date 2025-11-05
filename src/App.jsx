@@ -1,5 +1,7 @@
 // src/App.jsx
 import WarehouseView from "./WarehouseView.jsx";
+import { loadAll, saveActive, saveArchive, shouldApplyIncoming, clearAllButArchiveAnalytics } from './lib/storage';
+import { uploadOrderPhoto } from './lib/photos';
 import { saveActiveTours, fetchTours, markLoaded as markLoadedApi, unLoad as unLoadApi } from "./toursApi.js";
 import SaveControls from "./SaveControls.jsx";
 import MobileHeader from "./components/MobileHeader.jsx";
@@ -286,6 +288,82 @@ function AppContent({
       "unknown"
     );
   }, [resolvedUser]);
+
+  // Initiales Laden + Sync
+useEffect(() => {
+  const { active, archive } = loadAll();
+  if (active?.length || archive?.length) {
+    setTours(active || []);
+    setArchive(archive || []);
+  }
+  const onStorage = (e) => {
+    if (e.key === 'navio_meta') {
+      const incoming = JSON.parse(e.newValue || '{}');
+      if (shouldApplyIncoming(incoming)) {
+        const { active: a2, archive: r2 } = loadAll();
+        setTours(a2 || []);
+        setArchive(r2 || []);
+      }
+    }
+  };
+  window.addEventListener('storage', onStorage);
+  return () => window.removeEventListener('storage', onStorage);
+}, []);
+
+const onReorderStops = (tourId, nextStops) => {
+  setTours(prev => {
+    const next = prev.map(t => t.id === tourId ? { ...t, stops: nextStops } : t);
+    saveActive(next);
+    return next;
+  });
+};
+
+const onRestoreFromArchive = (tour) => {
+  setArchive(prevA => {
+    const nextA = prevA.filter(t => t.id !== tour.id);
+    saveArchive(nextA);
+    return nextA;
+  });
+  setTours(prevT => {
+    const nextT = [...prevT, tour];
+    saveActive(nextT);
+    return nextT;
+  });
+};
+
+const onMoveToArchive = (tour) => {
+  setTours(prevT => {
+    const nextT = prevT.filter(t => t.id !== tour.id);
+    saveActive(nextT);
+    return nextT;
+  });
+  setArchive(prevA => {
+    const nextA = [...prevA, tour];
+    saveArchive(nextA);
+    return nextA;
+  });
+};
+
+const onDeleteAllData = () => {
+  clearAllButArchiveAnalytics();
+  const { active, archive } = loadAll();
+  setTours(active || []);
+  setArchive(archive || []);
+};
+
+const onOrderPhotoSelected = async (orderId, file) => {
+  const url = await uploadOrderPhoto({ file, orderId });
+  setTours(prev => {
+    const next = prev.map(t => ({
+      ...t,
+      stops: t.stops.map(s => s.id === orderId ? { ...s, photos: [ ...(s.photos || []), url ] } : s)
+    }));
+    saveActive(next);
+    return next;
+  });
+};
+
+
 
   // Admin-Panel ohne URL-Wechsel
   const [showAdmin, setShowAdmin] = React.useState(false);
