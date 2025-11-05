@@ -20,7 +20,7 @@
         return Promise.resolve(new Response('{}',{status:200,headers:{'Content-Type':'application/json'}}));
       }
       if(API_BASE&&isNom(url)){
-        try{var u=new URL(url);var q=u.searchParams.get('q')||'';var prox=API_BASE+'/api/geocode?q='+encodeURIComponent(q);return _fetch(prox,{credentials:'include'})}catch(_){}
+        try{var u=new URL(url);var q=u.searchParams.get('q')||'';var prox=API_BASE+'/api/geocode?q='+encodeURIComponent(q);return _fetch(prox)}catch(_){}
       }
       if(API_BASE&&isApi(url)){
         var target=toApiUrl(url);
