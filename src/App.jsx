@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 // src/App.jsx
 import WarehouseView from "./WarehouseView.jsx";
 import { loadAll, saveActive, saveArchive, shouldApplyIncoming, clearAllButArchiveAnalytics } from './lib/storage';
