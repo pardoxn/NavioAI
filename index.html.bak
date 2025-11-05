@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Navio AI</title>
+    <link rel="icon" href="/brand/navio_ai_favicon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" sizes="180x180" href="/brand/apple-touch-icon-180.png" />
+<link rel="manifest" href="/brand/site.webmanifest" />
+<meta name="theme-color" content="#0F172A" />
+
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
