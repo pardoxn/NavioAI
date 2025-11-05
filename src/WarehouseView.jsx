@@ -38,6 +38,8 @@ export default function WarehouseView({
   embedded = false,
   activeTab: controlledActiveTab,
   onActiveTabChange,
+  onPersistActive,
+  onMarkLoaded,
 }) {
   const [internalTab, setInternalTab] = React.useState("tours"); // 'tours' | 'archive'
   const activeTab = controlledActiveTab ?? internalTab;
@@ -63,25 +65,33 @@ export default function WarehouseView({
     files.forEach(file => {
       const reader = new FileReader();
       reader.onload = evt => {
-        setTours(prev => prev.map(tour => {
-          if (tour.id !== tourId) return tour;
-          return {
-            ...tour,
-            updatedAt: new Date().toISOString(),
-            orders: (tour.orders || []).map(order => {
-              if (order.id !== orderId) return order;
-              const images = Array.isArray(order.images) ? order.images : [];
-              return {
-                ...order,
-                images: [...images, {
-                  id: Date.now() + Math.random(),
-                  dataUrl: evt.target.result,
-                  timestamp: new Date().toLocaleString("de-DE"),
-                }],
-              };
-            }),
-          };
-        }));
+        let nextToursSnapshot = null;
+        setTours(prev => {
+          const next = prev.map(tour => {
+            if (tour.id !== tourId) return tour;
+            return {
+              ...tour,
+              updatedAt: new Date().toISOString(),
+              orders: (tour.orders || []).map(order => {
+                if (order.id !== orderId) return order;
+                const images = Array.isArray(order.images) ? order.images : [];
+                return {
+                  ...order,
+                  images: [...images, {
+                    id: Date.now() + Math.random(),
+                    dataUrl: evt.target.result,
+                    timestamp: new Date().toLocaleString("de-DE"),
+                  }],
+                };
+              }),
+            };
+          });
+          nextToursSnapshot = next;
+          return next;
+        });
+        if (nextToursSnapshot) {
+          onPersistActive?.(nextToursSnapshot);
+        }
         toast.success("Bild hinzugefügt");
       };
       reader.readAsDataURL(file);
@@ -108,9 +118,27 @@ export default function WarehouseView({
     setTourNote("");
   };
 
-  const confirmMarkAsLoaded = () => {
+  const confirmMarkAsLoaded = async () => {
     const tourId = showLoadingModal;
     if (!tourId) return;
+    const noteClean = (tourNote || "").trim();
+    const photoData = tourLoadImage?.dataUrl || null;
+
+    if (typeof onMarkLoaded === "function") {
+      try {
+        await onMarkLoaded({ tourId, note: noteClean, photo: photoData });
+        setActiveTab("archive");
+        toast.success("Tour ins Archiv verschoben");
+        setShowLoadingModal(null);
+        setTourLoadImage(null);
+        setTourNote("");
+      } catch (error) {
+        console.error("Markieren als verladen fehlgeschlagen", error);
+        toast.error("Verladen fehlgeschlagen");
+      }
+      return;
+    }
+
     const t = (tours || []).find(x => x.id === tourId);
     if (!t) return;
 
@@ -119,14 +147,22 @@ export default function WarehouseView({
       loadedAt: new Date().toLocaleString("de-DE"),
       loadedAtISO: new Date().toISOString(),
       loadImage: tourLoadImage || null,
-      warehouseNote: (tourNote || "").trim(),
+      warehouseNote: noteClean,
       kind: "loaded",
       archivedAt: new Date().toISOString(),
       date: new Date().toLocaleString("de-DE", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit", second:"2-digit" }),
     };
 
+    let nextActiveSnapshot = null;
     setArchivedTours(prev => [archived, ...(prev || [])]);
-    setTours(prev => (prev || []).filter(x => x.id !== tourId));
+    setTours(prev => {
+      const next = (prev || []).filter(x => x.id !== tourId);
+      nextActiveSnapshot = next;
+      return next;
+    });
+    if (nextActiveSnapshot) {
+      onPersistActive?.(nextActiveSnapshot);
+    }
     setActiveTab("archive");
     setShowLoadingModal(null);
     setTourLoadImage(null);
@@ -138,8 +174,16 @@ export default function WarehouseView({
     const t = (archivedTours || []).find(x => x.id === tourId);
     if (!t) return;
     const { loadedAt, loadedAtISO, loadImage, warehouseNote, archivedAt, kind, ...active } = t;
-    setTours(prev => [{ ...active, updatedAt: new Date().toISOString() }, ...(prev || [])]);
+    let nextToursSnapshot = null;
+    setTours(prev => {
+      const next = [{ ...active, updatedAt: new Date().toISOString() }, ...(prev || [])];
+      nextToursSnapshot = next;
+      return next;
+    });
     setArchivedTours(prev => (prev || []).filter(x => x.id !== tourId));
+    if (nextToursSnapshot) {
+      onPersistActive?.(nextToursSnapshot);
+    }
     setActiveTab("tours");
     toast.info("Tour zurück in aktive Touren verschoben");
   };

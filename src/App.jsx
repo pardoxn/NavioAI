@@ -1,5 +1,6 @@
 // src/App.jsx
 import WarehouseView from "./WarehouseView.jsx";
+import { saveActiveTours, fetchTours, markLoaded as markLoadedApi, unLoad as unLoadApi } from "./toursApi.js";
 import SaveControls from "./SaveControls.jsx";
 import MobileHeader from "./components/MobileHeader.jsx";
 import MobileDrawer from "./components/MobileDrawer.jsx";
@@ -276,6 +277,16 @@ function AppContent({
   const [lagerActiveTab, setLagerActiveTab] = React.useState("tours");
   const fileRef = React.useRef(null);
 
+  const actorName = React.useMemo(() => {
+    return (
+      resolvedUser?.displayName ||
+      resolvedUser?.name ||
+      resolvedUser?.username ||
+      resolvedUser?.user?.name ||
+      "unknown"
+    );
+  }, [resolvedUser]);
+
   // Admin-Panel ohne URL-Wechsel
   const [showAdmin, setShowAdmin] = React.useState(false);
   React.useEffect(() => {
@@ -362,6 +373,92 @@ function AppContent({
     }
     prevReadyCountRef.current = readyToursForLager.length;
   }, [readyToursForLager.length, isLagerMode]);
+
+  const syncBlockUntilRef = React.useRef(0);
+  const blockSync = React.useCallback((ms = 2000) => {
+    syncBlockUntilRef.current = Date.now() + ms;
+  }, []);
+
+  const runSyncFromServer = React.useCallback(async () => {
+    if (Date.now() < syncBlockUntilRef.current) return;
+    try {
+      const data = await fetchTours();
+      const nextActive = Array.isArray(data?.active) ? data.active : [];
+      const nextArchive = Array.isArray(data?.archive) ? data.archive : [];
+      setTours(nextActive);
+      setArchivedTours(nextArchive);
+    } catch (error) {
+      console.error("Sync fehlgeschlagen", error);
+    }
+  }, [setTours, setArchivedTours]);
+
+  React.useEffect(() => {
+    runSyncFromServer();
+  }, [runSyncFromServer]);
+
+  React.useEffect(() => {
+    const intervalMs = isLagerMode ? 5000 : 12000;
+    const id = setInterval(() => {
+      runSyncFromServer();
+    }, intervalMs);
+    return () => clearInterval(id);
+  }, [runSyncFromServer, isLagerMode]);
+
+  React.useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        runSyncFromServer();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [runSyncFromServer]);
+
+  const pushActiveToServer = React.useCallback(async (nextActive, { suppressErrorToast = true, blockMs = 2200 } = {}) => {
+    blockSync(blockMs);
+    try {
+      await saveActiveTours(nextActive);
+    } catch (error) {
+      console.error("Aktive Touren konnten nicht gespeichert werden", error);
+      if (!suppressErrorToast) safeToast("Server-Speicherung fehlgeschlagen", "error");
+      throw error;
+    }
+  }, [blockSync]);
+
+  const handlePersistActiveSilent = React.useCallback(async (nextActive) => {
+    try {
+      await pushActiveToServer(nextActive, { suppressErrorToast: true });
+    } catch {
+      /* still keep UI state; retry on next sync */
+    }
+  }, [pushActiveToServer]);
+
+  const handleMarkLoadedFromWarehouse = React.useCallback(async ({ tourId, note, photo }) => {
+    blockSync(2600);
+    const payload = {
+      user: { name: actorName },
+      note: note || null,
+      loadImage: photo
+        ? {
+            url: photo.dataUrl || photo.url,
+            timestamp: photo.timestamp || new Date().toISOString(),
+          }
+        : null,
+    };
+    const res = await markLoadedApi(tourId, payload);
+    const snapshot = res?.data ?? res ?? {};
+    const nextActive = Array.isArray(snapshot?.active) ? snapshot.active : [];
+    const nextArchive = Array.isArray(snapshot?.archive) ? snapshot.archive : [];
+    setTours(nextActive);
+    setArchivedTours(nextArchive);
+    return { ok: true };
+  }, [actorName, blockSync]);
+
+  const handleRefreshFromServer = React.useCallback(() => {
+    runSyncFromServer();
+    safeToast("Serverdaten synchronisiert", "info");
+  }, [runSyncFromServer]);
 
   // Optimizer-URL
   const OPT_URL = (import.meta.env?.VITE_OPTIMIZER_URL || "http://localhost:8001").replace(/\/+$/, "");
@@ -462,20 +559,36 @@ function AppContent({
       const hasAnyCoord = orders.some(o => !!o.__coord);
       if (!startCoord || !hasAnyCoord) return;
       const stats = computeTourStats(startCoord, orders, (x) => x.__coord, 1.0);
-      setTours(prev => prev.map(t =>
-        t.id === tourId
-          ? { ...t, stops: stats.stops, distance: stats.distance, cost: stats.cost, weight: stats.weight }
-          : t
-      ));
+      let nextToursSnapshot = null;
+      setTours(prev => {
+        const next = prev.map(t =>
+          t.id === tourId
+            ? { ...t, stops: stats.stops, distance: stats.distance, cost: stats.cost, weight: stats.weight }
+            : t
+        );
+        nextToursSnapshot = next;
+        return next;
+      });
+      if (nextToursSnapshot) {
+        handlePersistActiveSilent(nextToursSnapshot);
+      }
     } catch { /* ok */ }
   }
   async function reorderStops(tourId, fromIdx, toIdx) {
     // 1) Sofort Reihenfolge + Basis-Stats aktualisieren
-    setTours(prev => prev.map(t => {
-      if (t.id !== tourId) return t;
-      const newOrders = arrayMove(t.orders || [], fromIdx, toIdx);
-      return recomputeTourFast(t, newOrders);
-    }));
+    let nextToursSnapshot = null;
+    setTours(prev => {
+      const next = prev.map(t => {
+        if (t.id !== tourId) return t;
+        const newOrders = arrayMove(t.orders || [], fromIdx, toIdx);
+        return recomputeTourFast(t, newOrders);
+      });
+      nextToursSnapshot = next;
+      return next;
+    });
+    if (nextToursSnapshot) {
+      handlePersistActiveSilent(nextToursSnapshot);
+    }
 
     // 2) Exakte Distanz/Kosten nachziehen (optional) + Autosave
     const tour = tours.find(t => t.id === tourId);
@@ -634,51 +747,78 @@ function AppContent({
   }
 
   // Button-Aktion: Auto-Plan
-  const onAutoPlan = async () => {
-    const hasOrders = Array.isArray(orders) && orders.length > 0;
-    if (!hasOrders) { safeToast("Keine Bestellungen vorhanden. CSV importieren oder manuell hinzufügen.", "error"); return; }
+const onAutoPlan = async () => {
+  const hasOrders = Array.isArray(orders) && orders.length > 0;
+  if (!hasOrders) { safeToast("Keine Bestellungen vorhanden. CSV importieren oder manuell hinzufügen.", "error"); return; }
 
-    const planningLabel = useAi ? "NavioAI plant…" : "Plant…";
-    safeToast(planningLabel, "info");
+  const planningLabel = useAi ? "NavioAI plant…" : "Plant…";
+  safeToast(planningLabel, "info");
 
-    try {
-      const plannedRaw = await planToursGeographically(orders);
-      const planned = Array.isArray(plannedRaw?.tours) ? plannedRaw.tours : (Array.isArray(plannedRaw) ? plannedRaw : []);
-      const normalized = normalizePlannedTours(planned);
-      const stamped = normalized.map(t => ({ ...t, createdAt: t.createdAt || new Date().toISOString() }));
-      setTours(stamped);
+  try {
+    const plannedRaw = await planToursGeographically(orders);
+    const planned = Array.isArray(plannedRaw?.tours) ? plannedRaw.tours : (Array.isArray(plannedRaw) ? plannedRaw : []);
+    const normalized = normalizePlannedTours(planned);
+    const stamped = normalized.map(t => ({ ...t, createdAt: t.createdAt || new Date().toISOString() }));
 
-      // sofort Snapshot speichern
-      triggerAutosave?.();
+    blockSync(2500);
+    setTours(stamped);
+    requestAnimationFrame(() => {
+      setActiveView("tours");
+      setShowAdmin(false);
+    });
+    await saveActiveTours(stamped);
 
-      // Tab erst nach State-Update wechseln
-      requestAnimationFrame(() => {
-        setActiveView("tours");
-        setShowAdmin(false);
-      });
+    safeToast("Geplante Touren: " + normalized.length, "success");
+  } catch (e) {
+    console.error(e);
+    safeToast("Planung fehlgeschlagen: " + (e?.message || "Unbekannter Fehler"), "error");
+  }
+};
 
-      safeToast("Geplante Touren: " + normalized.length, "success");
-    } catch (e) {
-      console.error(e);
-      safeToast("Planung fehlgeschlagen: " + (e?.message || "Unbekannter Fehler"), "error");
-    }
-  };
+
 
   const toggleOrder = (tourId, orderIdx) => setExpandedOrders(prev => ({ ...prev, [tourId+"-"+orderIdx]: !prev[tourId+"-"+orderIdx] }));
-  const toggleLock  = (tourId) => setTours(prev => prev.map(t => t.id===tourId ? ({...t, locked:!t.locked}) : t));
-  const markLoaded  = (tourId) => {
-    const t = tours.find(x => x.id===tourId); if (!t) return;
-    setTours(prev => prev.filter(x => x.id!==tourId));
-    setArchivedTours(a => [{
-      id: Number(String(tourId)+Math.floor(Math.random()*100)),
-      name:t.name, region:t.region, weight:t.weight, maxWeight:t.maxWeight,
-      date: new Date().toLocaleString("de-DE", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit", second:"2-digit" }),
-      archivedAt: new Date().toISOString(),
-      orders:t.orders, startPoint:t.startPoint, locked:true, distance:t.distance, cost:t.cost, stops:t.stops
-    }, ...a]);
-    safeToast("Tour ins Archiv verschoben", "info");
+  const toggleLock  = (tourId) => {
+    let nextToursSnapshot = null;
+    setTours(prev => {
+      const next = prev.map(t => t.id===tourId ? ({...t, locked:!t.locked}) : t);
+      nextToursSnapshot = next;
+      return next;
+    });
+    if (nextToursSnapshot) {
+      handlePersistActiveSilent(nextToursSnapshot);
+    }
+  };
+  const markLoaded  = async (tourId) => {
+    blockSync(2200);
+    try {
+      const res = await markLoadedApi(tourId, { user: { name: actorName } });
+      const snapshot = res?.data ?? res ?? {};
+      const nextActive = Array.isArray(snapshot?.active) ? snapshot.active : [];
+      const nextArchive = Array.isArray(snapshot?.archive) ? snapshot.archive : [];
+      setTours(nextActive);
+      setArchivedTours(nextArchive);
+      safeToast("Tour ins Archiv verschoben", "info");
+    } catch (error) {
+      console.error(error);
+      safeToast("Konnte Tour nicht archivieren", "error");
+    }
   };
   const undoLoaded = async (archId) => {
+    blockSync(2200);
+    try {
+      const res = await unLoadApi(archId, { user: { name: actorName } });
+      const snapshot = res?.data ?? res ?? {};
+      const nextActive = Array.isArray(snapshot?.active) ? snapshot.active : [];
+      const nextArchive = Array.isArray(snapshot?.archive) ? snapshot.archive : [];
+      setTours(nextActive);
+      setArchivedTours(nextArchive);
+      safeToast("Tour zurückgeholt", "info");
+      return;
+    } catch (error) {
+      console.error("Server-unload fehlgeschlagen, lokaler Fallback wird genutzt", error);
+    }
+
     const t = archivedTours.find(x => x.id===archId); if (!t) return;
     setArchivedTours(prev => prev.filter(x => x.id!==archId));
 
@@ -690,14 +830,36 @@ function AppContent({
 
     const stats = computeTourStats(startCoord, mapped, (x)=>x.__coord || startCoord, 1.0);
 
-    setTours(ts => [{
-      id: Date.now(), name:t.name, region:t.region, startPoint:t.startPoint || DEFAULT_START_ADDRESS,
-      stops: stats.stops, distance: stats.distance, cost: stats.cost, weight: stats.weight, maxWeight:t.maxWeight,
-      orders:t.orders, status:"active", locked:false
-    }, ...ts]);
-    safeToast("Tour zurückgeholt", "info");
+    let nextToursSnapshot = null;
+    setTours(ts => {
+      const next = [{
+        id: Date.now(), name:t.name, region:t.region, startPoint:t.startPoint || DEFAULT_START_ADDRESS,
+        stops: stats.stops, distance: stats.distance, cost: stats.cost, weight: stats.weight, maxWeight:t.maxWeight,
+        orders:t.orders, status:"active", locked:false
+      }, ...ts];
+      nextToursSnapshot = next;
+      return next;
+    });
+    if (nextToursSnapshot) {
+      handlePersistActiveSilent(nextToursSnapshot);
+    }
+    safeToast("Tour zurückgeholt (lokal)", "info");
   };
-  const copyTour = (tour) => { const clone = JSON.parse(JSON.stringify(tour)); clone.id = Date.now(); clone.locked = false; setTours(prev => [clone, ...prev]); safeToast("Tour kopiert", "success"); };
+  const copyTour = (tour) => {
+    const clone = JSON.parse(JSON.stringify(tour));
+    clone.id = Date.now();
+    clone.locked = false;
+    let nextToursSnapshot = null;
+    setTours(prev => {
+      const next = [clone, ...(prev || [])];
+      nextToursSnapshot = next;
+      return next;
+    });
+    if (nextToursSnapshot) {
+      handlePersistActiveSilent(nextToursSnapshot);
+    }
+    safeToast("Tour kopiert", "success");
+  };
 
   // ====== LAGER-KIOSK: Rolle 'lager' ODER /lager/?warehouse=1 ======
   if (isLagerMode) {
@@ -739,6 +901,8 @@ function AppContent({
               setTours={setTours}
               archivedTours={archivedTours}
               setArchivedTours={setArchivedTours}
+              onPersistActive={handlePersistActiveSilent}
+              onMarkLoaded={handleMarkLoadedFromWarehouse}
             />
           </div>
         </main>
@@ -807,6 +971,13 @@ function AppContent({
             className={"w-full flex items-center gap-3 p-3 rounded-lg transition-colors "+(!showAdmin && activeView==="reports" ? "bg-blue-600 text-white" : "hover:bg-slate-700")}
           >
             <FileText size={20} /> {sidebarOpen && <span>CMR & Berichte</span>}
+          </button>
+
+          <button
+            onClick={handleRefreshFromServer}
+            className={"w-full flex items-center gap-3 p-3 rounded-lg transition-colors hover:bg-slate-700"}
+          >
+            <Download size={20} /> {sidebarOpen && <span>Serverdaten laden</span>}
           </button>
 
           {/* Benutzerverwaltung NUR für Admin */}
@@ -1289,6 +1460,8 @@ function AppContent({
                   setTours={setTours}
                   archivedTours={archivedTours}
                   setArchivedTours={setArchivedTours}
+                  onPersistActive={handlePersistActiveSilent}
+                  onMarkLoaded={handleMarkLoadedFromWarehouse}
                 />
               </div>
             )}
